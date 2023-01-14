@@ -1,4 +1,5 @@
 const mongoose = require('mongoose')
+const ObjectId = mongoose.Schema.Types.ObjectId;
 
 const User = new mongoose.Schema({
     password:{
@@ -6,6 +7,10 @@ const User = new mongoose.Schema({
         require: true
     },
     email: {
+        type: String,
+        require: true
+    },
+    name: {
         type: String,
         require: true
     },
@@ -18,9 +23,12 @@ const User = new mongoose.Schema({
         type: String,
         require: true
     },
-    stores: {
-        type: Array,
+    contact: {
+        type: String,
+        require: true
     },
+    dorms: [{ type: ObjectId, ref: 'Dorm' }],
+
 
 })
 

@@ -4,8 +4,6 @@ const UserModel = require('../model/User.model')
 const jwt = require('jsonwebtoken')
 const config = require('../config/config.db')
 const fs = require("fs");
-const KeyModel = require('../model/Key.model');
-const StoreModel = require('../model/Store.model');
 const TokenModel = require('../model/Token.model');
 const crypto = require('crypto');
 const axios = require('axios');
@@ -16,6 +14,7 @@ const login = async (req, res) => {
 
     if (req.body.email === "" || req.body.password === "") return res.json({ error: 1, message: "Please fill in all fields" })
     const user = await UserModel.findOne({ email: req.body.email })
+
 
     if (!user)
         res.json({ error: 1, message: "User doesn't exist" })
@@ -44,10 +43,16 @@ const logout = async (req, res) => {
 const register = async (req, res) => {
 
     //Checking if all fields are filled
-    if (req.body.email === "" || req.body.password === "") return res.json({ error: 1, message: "Please fill in all fields" })
+    if (req.body.email === "" || req.body.password === "" || req.body.accountType === "") return res.json({ error: 1, message: "Please fill in all fields" })
+
+
+    let accountType = req.body.accountType.toLowerCase();
+    //check account type
+    if (accountType !== "renter" && accountType !== "owner") return res.json({ error: 1, message: "Invalid account type" })
 
     //check if user exists
     let userExist = await UserModel.findOne({ email: req.body.email })
+
     if (userExist) return res.json({ error: 1, message: "Email already exists" })
 
     
@@ -61,7 +66,9 @@ const register = async (req, res) => {
     const user = new UserModel({
         password: hashPassword,
         email: req.body.email,
-        role: "user",
+        name: `${req.body.fname} ${req.body.lname}`,
+        role: accountType,
+        contact: req.body.contact
     })
 
     const token = new TokenModel({
@@ -84,7 +91,7 @@ const register = async (req, res) => {
     }
 
 
-    email.sendEmail(req.body.email, `${process.env.LINK}/verify?user_id=${user.id}&token=${token.uniqueString}`,  "Click here to verifiy your account",  "Verify Account", "Roses Market Verifiy Email")
+    // email.sendEmail(req.body.email, `${process.env.LINK}/verify?user_id=${user.id}&token=${token.uniqueString}`,  "Click here to verifiy your account",  "Verify Account", "Roses Market Verifiy Email")
 
 
 }
@@ -121,7 +128,7 @@ const sendVerification = async (req, res) => {
 
     try {
         token.save()
-        email.sendEmail(req.body.email, `${process.env.LINK}/verify?user_id=${req.user._id}&token=${token.uniqueString}`, "Click here to verifiy your account",  "Verify Account", "Roses Market Verifiy Email")
+        // email.sendEmail(req.body.email, `${process.env.LINK}/verify?user_id=${req.user._id}&token=${token.uniqueString}`, "Click here to verifiy your account",  "Verify Account", "Roses Market Verifiy Email")
 
         res.json({ error: 0, message: "Email verification sent" })
     } catch (error) {
@@ -140,10 +147,11 @@ const getInfo = async (req, res) => {
         if (!user) return res.json({ error: 1, message: "User doesn't exist" })
 
         let userInfo = {
-            username: user.username,
+            name: user.name,
             role: user.role,
             verified: user.verified,
-            email: user.email
+            email: user.email,
+            dorms: user.dorms
         }
 
         res.json({ error: 0, message: "Success", user: userInfo })
@@ -152,112 +160,6 @@ const getInfo = async (req, res) => {
         res.json({ error: 1, message: "Something went wrong" })
     }
 
-}
-
-const getStores = async (req, res) => {
-    try {
-        const user = await UserModel.findOne({ _id: req.user._id })
-        const stores = await StoreModel.find({ owner: user.username })
-
-        if (!user) return res.json({ error: 1, message: "User doesn't exist" })
-        res.json({ error: 0, message: "Success", stores: stores })
-    } catch (error) {
-        res.json({ error: 1, message: "Something went wrong" })
-    }
-
-}
-
-const redeem = async (req, res) => {
-
-    let token = req.cookies.token;
-    let user;
-    let storeItem = req.body.store;
-    let owner = " ";
-    let keyString = req.body.key.replace(/\s+/g, '');
-
-    try {
-        const returnChar = /\n/gi;
-        const a = storeItem.description.match(returnChar);
-
-        if (storeItem.description.length > 200 || (a && a.length > 8)) {
-            return res.json({ error: 1, message: "Characters Exceeded" });
-        }
-    } catch (error) {
-        console.log(error)
-    }
-
-    const areTruthy = Object.values(storeItem).every(
-        value => value !== "" && value !== null && value !== undefined && value !== " "
-    );
-
-    if (!areTruthy) return res.json({ error: 1, message: "Please fill in all fields" })
-
-    const key = await KeyModel.findOne({ key: keyString })
-    if (!key) return res.json({ error: 1, message: "Invalid key" })
-    if (key.used) return res.json({ error: 1, message: "Key already redeemed" })
-
-
-    let bannerValid = await validateImg(req.body.store.bannerimg);
-    if (!bannerValid) return res.json({ error: 1, message: "Invalid banner image" });
-
-    let pfpValid = await validateImg(req.body.store.pfpimg);
-    if (!pfpValid) return res.json({ error: 1, message: "Invalid pfp image" });
-
-
-
-    if (token) {
-        try {
-            const verified = jwt.verify(token, config.TOKEN)
-
-            user = await UserModel.findOne({ _id: verified._id })
-            owner = user.username;
-        } catch (err) {
-            owner = " ";
-        }
-    }
-
-
-    let timeObject = new Date();
-    let milliseconds = 20 * 1000; // 10 seconds = 10000 milliseconds
-    timeObject = new Date(timeObject.getTime() + milliseconds);
-
-    let addStore = {
-        owner: owner,
-        name: storeItem.name,
-        type: storeItem.type,
-        bannerimg: storeItem.bannerimg,
-        pfpimg: storeItem.pfpimg,
-        invitelink: storeItem.link,
-        description: storeItem.description,
-        datestarted: new Date(),
-        expiration: setDateValidity(parseInt(key.validity)),
-        color: storeItem.color,
-        textcolor: storeItem.textcolor,
-        expireAt: setDateValidity(parseInt(key.validity))
-    }
-
-    const store = new StoreModel(addStore)
-
-    try {
-        await store.save()
-        await KeyModel.updateOne({ key: req.body.key }, { used: true });
-
-        let stores = user.stores
-        stores.push(addStore)
-        await UserModel.updateOne({ _id: user._id }, { stores: stores })
-
-        res.json({ error: 0, message: "Store added and key redeemed" })
-
-    } catch (err) {
-        res.status(400).send(err)
-    }
-
-}
-
-const setDateValidity = (validity) => {
-    let date = new Date();
-    date.setDate(date.getDate() + validity);
-    return date;
 }
 
 //send reset password link to email
@@ -273,7 +175,7 @@ const forgotPassword = async (req, res) => {
 
     try {
         await token.save()
-        email.sendEmail(req.body.email, `${process.env.LINK}/forgot-password?user_id=${user.id}&token=${token.uniqueString}`, "Click here to reset your password", "Reset Password", "Roses Market Reset Password")
+        // email.sendEmail(req.body.email, `${process.env.LINK}/forgot-password?user_id=${user.id}&token=${token.uniqueString}`, "Click here to reset your password", "Reset Password", "Roses Market Reset Password")
 
         res.json({ error: 0, message: "Password reset link sent to email", link: `http://${process.env.LINK}/forgot-password?user_id=${user.id}&token=${token.uniqueString}` })
     } catch (err) {
@@ -332,12 +234,10 @@ module.exports = {
     login,
     getInfo,
     register,
-    redeem,
     verifyAccount,
     forgotPassword,
     resetPassword,
     logout,
-    getStores,
     validateImg,
     sendVerification
 }
